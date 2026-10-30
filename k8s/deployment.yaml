@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fd-info
+  namespace: fd-prod
+  labels: { app: fd-info }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: fd-info }
+  template:
+    metadata:
+      labels: { app: fd-info }
+    spec:
+      # 与 fd-sentiment / fd-quant 同范式：共享实例，无多租户。
+      nodeSelector:
+        kubernetes.io/hostname: liuliangjkiimypbdzxa   # cheap3：与既有共享实例同节点
+      containers:
+        - name: api
+          # 镜像由 CI 产出；先 build/push 再 apply，禁止用 :latest。
+          image: REGISTRY/finddata/fd-info:0.1.0
+          imagePullPolicy: IfNotPresent
+          args: ["--http", "8080"]
+          env:
+            - name: FD_INFO_DB
+              value: /data/fd_info.db
+            - name: FD_INFO_SPOOL
+              value: /data/spool
+            # text-core 未就绪时留空：search_info 显式降级为索引检索。
+            - name: FD_TEXT_CORE_URL
+              value: ""
+            - name: FD_TEXT_CORE_TOKEN
+              valueFrom:
+                secretKeyRef: { name: fd-info-secrets, key: text-core-token, optional: true }
+          ports:
+            - { name: mcp, containerPort: 8080 }
+            - { name: health, containerPort: 8081 }
+          readinessProbe:
+            httpGet: { path: /health, port: health }
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: health }
+            initialDelaySeconds: 20
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: fd-info-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fd-info-data
+  namespace: fd-prod
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 5Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fd-info
+  namespace: fd-prod
+spec:
+  type: NodePort
+  selector: { app: fd-info }
+  ports:
+    - { name: mcp, port: 8080, targetPort: mcp, nodePort: 31905 }

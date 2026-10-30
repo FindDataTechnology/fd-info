@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fd-info-fetch
+  # 必须与 PVC 同命名空间（PVC 命名空间绑定），故与 deployment 同置 fd-prod。
+  namespace: fd-prod
+  labels: { app: fd-info-fetch }
+spec:
+  # 5 分钟：诚实下限（design D2）。重叠窗由 fd-info 内部处理。
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 240
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: fetch
+              image: REGISTRY/finddata/fd-info:0.1.0
+              imagePullPolicy: IfNotPresent
+              command: ["fd-info", "fetch", "--days", "2"]
+              env:
+                - name: FD_INFO_DB
+                  value: /data/fd_info.db
+                - name: FD_INFO_SPOOL
+                  value: /data/spool
+              volumeMounts:
+                - { name: data, mountPath: /data }
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: fd-info-data
