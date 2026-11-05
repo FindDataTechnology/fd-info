@@ -52,6 +52,17 @@ class InfoService:
             return {"ok": False, "error": str(exc), "doc_id": doc_id}
         return {"ok": True, "doc_id": doc_id, "start": start, "end": end, "quote": quote}
 
+    def get_body(self, doc_id: str) -> dict[str, Any]:
+        """按 doc_id 取条目全文的只读面（get_item 不内联正文的补位查询）。
+
+        服务间只读消费用途；正文不可得时返回结构化错误，不假成功。
+        """
+        try:
+            body = self.body_store.full(doc_id)
+        except BodyUnavailable as exc:
+            return {"ok": False, "error": str(exc), "doc_id": doc_id}
+        return {"ok": True, "doc_id": doc_id, "body": body, "length": len(body)}
+
     def search_info(
         self,
         query: str,

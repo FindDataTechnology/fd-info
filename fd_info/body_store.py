@@ -25,6 +25,9 @@ class BodyStore(Protocol):
     def locate(self, doc_id: str, start: int, end: int) -> str:
         """返回 ``doc_id`` 的 ``[start, end)`` 逐字片段。"""
 
+    def full(self, doc_id: str) -> str:
+        """返回 ``doc_id`` 的全文；不存在时抛 :class:`BodyUnavailable`。"""
+
 
 class MemoryBodyStore:
     def __init__(self) -> None:
@@ -34,6 +37,12 @@ class MemoryBodyStore:
         doc_id = item.doc_id or f"{item.source}:{item.source_id}"
         self.docs[doc_id] = body
         return doc_id
+
+    def full(self, doc_id: str) -> str:
+        body = self.docs.get(doc_id)
+        if body is None:
+            raise BodyUnavailable(f"正文不存在：{doc_id}")
+        return body
 
     def locate(self, doc_id: str, start: int, end: int) -> str:
         body = self.docs.get(doc_id)
@@ -85,4 +94,13 @@ class SpoolBodyStore:
                     if start < 0 or end > len(body) or start >= end:
                         raise BodyUnavailable(f"区间越界：{start}..{end}（正文 {len(body)} 字）")
                     return body[start:end]
+        raise BodyUnavailable(f"正文不存在：{doc_id}")
+
+    def full(self, doc_id: str) -> str:
+        source, _, source_id = doc_id.partition(":")
+        for path in sorted((self.root / source / "structured").glob("*.jsonl"), reverse=True):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                rec = json.loads(line)
+                if rec.get("source") == source and rec.get("source_id") == source_id:
+                    return rec.get("content") or ""
         raise BodyUnavailable(f"正文不存在：{doc_id}")

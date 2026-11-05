@@ -123,3 +123,16 @@ def test_degraded_empty_result_still_carries_reason(tmp_path):
     assert result["mode"] == "index"
     assert result["degraded_reason"]
     store.close()
+
+
+def test_get_body_returns_full_text_or_structured_error(tmp_path):
+    body = MemoryBodyStore()
+    service = InfoService(Store(tmp_path / "i.db"), body)
+    body.put(item(), "0123456789")
+    doc_id = "cninfo:a1"
+    got = service.get_body(doc_id)
+    assert got == {"ok": True, "doc_id": doc_id, "body": "0123456789", "length": 10}
+    # 与 locate_evidence 全区间逐字一致（spec 场景锚点）
+    assert service.locate(doc_id, 0, got["length"])["quote"] == got["body"]
+    missing = service.get_body("cninfo:none")
+    assert missing["ok"] is False and missing["doc_id"] == "cninfo:none" and "error" in missing

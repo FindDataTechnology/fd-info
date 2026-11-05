@@ -32,3 +32,15 @@ def test_spool_missing_body_and_bounds(tmp_path):
     doc_id = store.put(item(), "abc")
     with pytest.raises(BodyUnavailable):
         store.locate(doc_id, 2, 99)
+
+
+def test_spool_full_returns_whole_body(tmp_path):
+    store = SpoolBodyStore(tmp_path)
+    doc_id = store.put(item(), "政策全文：自 2026 年起施行。")
+    assert store.full(doc_id) == "政策全文：自 2026 年起施行。"
+
+
+def test_spool_full_missing_raises(tmp_path):
+    store = SpoolBodyStore(tmp_path)
+    with pytest.raises(BodyUnavailable):
+        store.full("cn-gov:none")

@@ -79,6 +79,11 @@ def build_server():  # pragma: no cover - 传输层，测试不装载 fastmcp
         return service.locate(doc_id, start, end)
 
     @mcp.tool
+    def get_body(doc_id: str) -> dict:
+        """按 doc_id 取条目全文的只读查询（服务间消费；正文缺失返回结构化错误）。"""
+        return service.get_body(doc_id)
+
+    @mcp.tool
     def stream_health() -> dict:
         """各来源水位、最近成功时间、入库延迟 p95 与失败计数。"""
         return {"sources": service.health()}
