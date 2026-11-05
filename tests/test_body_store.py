@@ -1,3 +1,5 @@
+import json
+
 from fd_info.body_store import BodyUnavailable, SpoolBodyStore
 from fd_info.models import InfoItem
 
@@ -44,3 +46,17 @@ def test_spool_full_missing_raises(tmp_path):
     store = SpoolBodyStore(tmp_path)
     with pytest.raises(BodyUnavailable):
         store.full("cn-gov:none")
+
+
+def test_spool_skips_malformed_lines(tmp_path):
+    """历史脏行（如 PDF 二进制污染产生的非法 JSON）跳过，不炸 full/locate。"""
+    store = SpoolBodyStore(tmp_path)
+    it = item()
+    doc_id = store.put(it, "正常正文")
+    target = tmp_path / "cn-gov" / "structured" / "2026-10-23.jsonl"
+    # 实际写一条坏行 + 重复 put 以确保目标文件存在坏行且新行在后
+    with target.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"source": "cn-gov", "source_id": "http://x/1.html",
+                             "content": "正常正文"}, ensure_ascii=False) + "\n")
+    assert store.full(doc_id) == "正常正文"
+    assert store.locate(doc_id, 0, 2) == "正常"

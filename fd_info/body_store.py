@@ -88,7 +88,10 @@ class SpoolBodyStore:
         source, _, source_id = doc_id.partition(":")
         for path in sorted((self.root / source / "structured").glob("*.jsonl"), reverse=True):
             for line in path.read_text(encoding="utf-8").splitlines():
-                rec = json.loads(line)
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # 历史脏行（如 PDF 二进制污染）：跳过，等价于该行无正文
                 if rec.get("source") == source and rec.get("source_id") == source_id:
                     body = rec.get("content") or ""
                     if start < 0 or end > len(body) or start >= end:
@@ -100,7 +103,10 @@ class SpoolBodyStore:
         source, _, source_id = doc_id.partition(":")
         for path in sorted((self.root / source / "structured").glob("*.jsonl"), reverse=True):
             for line in path.read_text(encoding="utf-8").splitlines():
-                rec = json.loads(line)
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # 历史脏行（如 PDF 二进制污染）：跳过，等价于该行无正文
                 if rec.get("source") == source and rec.get("source_id") == source_id:
                     return rec.get("content") or ""
         raise BodyUnavailable(f"正文不存在：{doc_id}")
