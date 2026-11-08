@@ -119,7 +119,19 @@ def _within(records: list[dict], window: FetchWindow, script: str) -> list[InfoI
 
 
 def fetch_body(url: str) -> str | None:
-    """详情页正文：可选依赖 fd-cn-gov；失败返回 None（调用方标 failed）。"""
+    """详情页正文（**干净文本**）：可选依赖 fd-cn-gov；失败返回 None（调用方标 failed）。
+
+    2026-11-08 修：`fetch_detail` 返回的是 `html_content` —— **原始 HTML**。
+    此前直接把它当正文存下，于是 spool 里 46 条 cn-gov 记录 100% 是标签汤
+    （`<dt> 来 源： </dt><dd id="ly">…`、`<div class="social-icon-wrapper">`），
+    再被当成语料切块、向量化，政务检索只能捞出标记。实测 1275 个 gov 切片里
+    1126 个（88%）含 HTML 标签。
+
+    正解是走 fd-cn-gov 自己的解析器（`parse_gov_doc`：多候选正文容器 + 过滤页脚
+    与分享按钮 + 抽文号/成文日期），与它 `pipeline.build_record` 里
+    `content=doc.body` 的口径完全一致。解析器不可用时**宁可返回 None 让这条标
+    failed**，也不要把 HTML 当正文写进语料——脏数据比缺数据更难清理。
+    """
     try:
         from fd_cn_gov.detail.fetch import fetch_detail
     except ImportError:
@@ -127,5 +139,18 @@ def fetch_body(url: str) -> str | None:
     result = fetch_detail(url)
     if not getattr(result, "ok", False):
         return None
-    body = (getattr(result, "body", "") or "").strip()
+    raw = (getattr(result, "body", "") or "").strip()
+    if not raw:
+        return None
+
+    try:
+        from fd_text_core.verticals.gov.parser import parse_gov_doc
+    except ImportError:
+        # 没有解析器就无法把 HTML 变成正文：如实失败，不落脏数据
+        return None
+    try:
+        doc = parse_gov_doc(raw)
+    except Exception:
+        return None
+    body = (getattr(doc, "body", "") or "").strip()
     return body or None
