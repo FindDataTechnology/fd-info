@@ -78,3 +78,64 @@ def test_detailed_classifies_stored():
     body, status = fetch_body_detailed("https://example.test/a.PDF",
                                        download=lambda u: _pdf_bytes("Scanme text"))
     assert status == "stored" and body and "Scanme" in body
+
+
+def test_detailed_classifies_oversize():
+    """超单份上限 → oversize（终态）。生产实证 2026-11-11：512Mi 容器被一份
+    大 PDF 打穿整轮回填，而 OOM 时日志全空 —— 上限必须显式且可分类落库。"""
+    from fd_info.fetchers.cninfo import PdfTooLarge, fetch_body_detailed
+
+    def too_big(u: str) -> bytes:
+        raise PdfTooLarge(999_999_999)
+
+    body, status = fetch_body_detailed("https://example.test/a.PDF", download=too_big)
+    assert body is None and status == "oversize"
+
+
+def test_download_rejects_on_content_length_without_reading():
+    """声明体积超限 → 立刻拒（不把整包下完再判）。"""
+    import httpx
+
+    from fd_info.fetchers.cninfo import PdfTooLarge, _download_pdf
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-length": "2000"}, content=b"x" * 10)
+
+    try:
+        _download_pdf("https://example.test/big.PDF", max_bytes=1000,
+                      transport=httpx.MockTransport(handler))
+    except PdfTooLarge as exc:
+        assert exc.size == 2000
+    else:
+        raise AssertionError("应抛 PdfTooLarge")
+
+
+def test_download_rejects_while_streaming_when_length_absent():
+    """无 Content-Length 时边下边算，超限即断 —— 防 chunked 大包吃满内存。"""
+    import httpx
+
+    from fd_info.fetchers.cninfo import PdfTooLarge, _download_pdf
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=iter([b"x" * 600, b"x" * 600]))
+
+    try:
+        _download_pdf("https://example.test/chunked.PDF", max_bytes=1000,
+                      transport=httpx.MockTransport(handler))
+    except PdfTooLarge as exc:
+        assert exc.size > 1000
+    else:
+        raise AssertionError("应抛 PdfTooLarge")
+
+
+def test_download_under_cap_returns_exact_bytes():
+    import httpx
+
+    from fd_info.fetchers.cninfo import _download_pdf
+
+    payload = _pdf_bytes("under cap")
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=payload)
+
+    assert _download_pdf("https://example.test/ok.PDF", max_bytes=10_000_000,
+                         transport=httpx.MockTransport(handler)) == payload

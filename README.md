@@ -52,3 +52,16 @@ FD_INFO_DB=/tmp/fd_info.db FD_INFO_SPOOL=/tmp/fd_info_spool \
 2. **`no_text` 三分类**（本版）：扫描/图片型 PDF 下载成功但零文本层——静默重试会让这类
    永久失败项按「最新优先」永远占住回填名额，真正可取的老条目轮不到。`no_text` 显式落库、
    不再重试（待 OCR 能力接入）；`failed` 保留给可重试类（404/网络/解析异常）。
+
+2026-11-11 加 **`oversize` 终态**（生产实证）：回填容器在 fd-prod 命名空间里
+没有显式 resources，吃的是 LimitRange 默认 `512Mi`；队头 16/22/54MB 三份扫描件
+实测 pypdf 峰值 98/127/238MiB，一旦撞上更大的一份就被 OOMKilled（exitCode 137），
+而 **OOM 时进程一行日志都没有**——连"取到哪一条"都无从判断。本版三处收口：
+1. `_download_pdf` 改流式并硬限 `MAX_PDF_BYTES=96MiB`：Content-Length 超限先拒，
+   无长度则边下边算，超限即断（旧实现 `resp.content` 整包成型再被 `BytesIO` 复制，
+   峰值约 2× 体积且无上限）。
+2. 超过上限判 `oversize` 落库，与 `no_text` 同属终态（`TERMINAL_BODY_STATUSES`），
+   不再重试、不再占队头；可重试类仍是 `failed`。
+3. `backfill-bodies` 每处理一条就往 **stderr** 打一行 JSON（item_id/url/secs）。
+   进程被 SIGKILL 时 stdout 全丢，这行是唯一能指名条目的证据。
+配套清单显式给 resources（`requests 256Mi / limits 1Gi`），不再继承命名空间默认值。

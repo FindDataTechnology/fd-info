@@ -15,7 +15,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 SOURCE_TYPES = ("announcement", "ministry", "interaction")
-BODY_STATUSES = ("pending", "stored", "failed", "no_text")
+BODY_STATUSES = ("pending", "stored", "failed", "no_text", "oversize")
+# 终态：重试无意义的「取不到正文」。回填按 published_at 最新优先排队，终态若不落库
+# 就会每天占住队头、把真正可取的老条目挤下去（2026-10-27 为 no_text 立的口径，
+# 2026-11-11 扩到 oversize）。
+TERMINAL_BODY_STATUSES = ("no_text", "oversize")
 SOURCE_STATUSES = ("ok", "unavailable", "partial")
 
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")

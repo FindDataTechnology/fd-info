@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import io
 from typing import Any, Callable
 
 import httpx
@@ -18,6 +19,21 @@ from .base import FetchWindow, item_from_row, parse_list_date
 ENDPOINT = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
 SOURCE = "cninfo"
 PAGE_SIZE = 30
+
+# 单份 PDF 的下载上限。实测（2026-11-11，生产的 512Mi 容器）：
+# 54MB 扫描件 pypdf 峰值 237MiB，16MB/22MB 各 98/127MiB —— 内存随文件线性涨，
+# 而正文回填是每日跑批、队头按 published_at 排序，撞上一份超大 PDF 就整轮 OOM，
+# 且 OOM 时进程无任何输出（见 cli.py 的逐条 stderr 留痕）。所以上限必须显式：
+# 超过即判 oversize（终态，不再重试），让真正可取的条目排上来。
+MAX_PDF_BYTES = 96 * 1024 * 1024
+
+
+class PdfTooLarge(Exception):
+    """下载体积超过 MAX_PDF_BYTES —— 终态，不是可重试故障。"""
+
+    def __init__(self, size: int) -> None:
+        super().__init__(f"pdf too large: {size} bytes")
+        self.size = size
 
 
 class CninfoSource:
@@ -115,14 +131,21 @@ class CninfoSource:
             return resp.json()
 
 
-def fetch_body_detailed(url: str, *, download: Callable[[str], bytes] | None = None) -> tuple[str | None, str]:
+def fetch_body_detailed(
+    url: str,
+    *,
+    download: Callable[[str], bytes] | None = None,
+    max_bytes: int = MAX_PDF_BYTES,
+) -> tuple[str | None, str]:
     """公告 PDF 正文（分类版）：返回 (正文, 状态)。
 
-    状态三分（2026-10-27 实证：静默重试掩盖两类永久失败——按最新优先的回填
+    状态四分（2026-10-27 实证：静默重试掩盖两类永久失败——按最新优先的回填
     会被它们永远占位、真正可取的老条目轮不到，必须显式分类）：
       - ``stored`` ：提取到文本；
       - ``no_text``：下载成功但无文本层（扫描/图片型 PDF，pypdf 零字符）——
         重试无意义，待 OCR 能力接入；
+      - ``oversize``：超过 ``max_bytes``（2026-11-11 加：512Mi 容器被一份大
+        PDF 打穿整轮，且 OOM 无日志）——终态，重试同样无意义；
       - ``failed`` ：下载/解析失败（404、网络、异常）——可重试。
     """
     if not url:
@@ -132,14 +155,14 @@ def fetch_body_detailed(url: str, *, download: Callable[[str], bytes] | None = N
     except ImportError:
         return None, "failed"
     try:
-        data = (download or _download_pdf)(url)
+        data = download(url) if download is not None else _download_pdf(url, max_bytes=max_bytes)
+    except PdfTooLarge:
+        return None, "oversize"
     except Exception:  # noqa: BLE001 — 404/网络等，可重试类
         return None, "failed"
     if not data:
         return None, "failed"
     try:
-        import io
-
         reader = PdfReader(io.BytesIO(data))
         text = "\n".join((page.extract_text() or "") for page in reader.pages)
         text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
@@ -154,17 +177,34 @@ def fetch_body(url: str, *, download: Callable[[str], bytes] | None = None) -> s
     v2（2026-10-26）：v1 只取列表元数据、正文一律 failed（2019 条存量）；
     巨潮公告正文即 PDF（static.cninfo.com.cn/finalpage/*.PDF），本函数补上
     提取链路。``download`` 可注入（测试用固定字节，绝不真打网）。
-    需要三分类（stored/no_text/failed）时用 fetch_body_detailed。
+    需要四分法（stored/no_text/oversize/failed）时用 fetch_body_detailed。
     """
     body, _status = fetch_body_detailed(url, download=download)
     return body
 
 
-def _download_pdf(url: str) -> bytes:
-    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-        resp = client.get(
-            url,
-            headers={"User-Agent": "fd-info/0.1 (+https://github.com/FindDataTechnology)"},
-        )
-        resp.raise_for_status()
-        return resp.content
+def _download_pdf(
+    url: str,
+    *,
+    max_bytes: int = MAX_PDF_BYTES,
+    transport: httpx.BaseTransport | None = None,
+) -> bytes:
+    """流式下载并**先量后取**：Content-Length 超限直接拒，边下边算超限即断。
+
+    旧实现用 ``client.get(...).content`` —— 整包先在内存里成型，再被
+    ``io.BytesIO`` 复制一份，峰值约 2× 文件体积且没有上限。流式写入同一
+    缓冲区把峰值压到 1×，并在 ``max_bytes`` 处硬停。
+    """
+    headers = {"User-Agent": "fd-info/0.1 (+https://github.com/FindDataTechnology)"}
+    with httpx.Client(timeout=30.0, follow_redirects=True, transport=transport) as client:
+        with client.stream("GET", url, headers=headers) as resp:
+            resp.raise_for_status()
+            declared = resp.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > max_bytes:
+                raise PdfTooLarge(int(declared))
+            buf = io.BytesIO()
+            for chunk in resp.iter_bytes():
+                buf.write(chunk)
+                if buf.tell() > max_bytes:
+                    raise PdfTooLarge(buf.tell())
+            return buf.getvalue()

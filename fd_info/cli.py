@@ -22,7 +22,7 @@ from .fetchers.base import day_bounds
 from .fetchers.cninfo import fetch_body as cninfo_body
 from .fetchers.cninfo import fetch_body_detailed as cninfo_body_detailed
 from .fetchers.ministry import fetch_body as ministry_body
-from .models import InfoItem
+from .models import TERMINAL_BODY_STATUSES, InfoItem
 from .service import InfoService
 from .storage import Store
 
@@ -66,6 +66,12 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _trace(item_id: str, stype: str, url: str, phase: str, **extra) -> None:
+    """回填逐条留痕（stderr，一行一条）。见 cmd_backfill_bodies 里的缘由。"""
+    print(json.dumps({"item_id": item_id, "type": stype, "url": url, "phase": phase, **extra},
+                     ensure_ascii=False), file=sys.stderr, flush=True)
+
+
 def cmd_backfill_bodies(args: argparse.Namespace) -> int:
     """重试 body_status=failed 的条目正文（design：摄取只在新建/变更时取正文，
     瞬时上游失败会永久停在 failed——本命令是唯一的自愈路径）。
@@ -93,16 +99,25 @@ def cmd_backfill_bodies(args: argparse.Namespace) -> int:
         if body_fetcher is None or not url:
             skipped += 1
             continue
+        # 逐条 stderr 留痕，**取正文之前**就要落一行：OOM/超时被 SIGKILL 时进程
+        # 一行输出都没有（2026-11-11 实测：一个 OOMKilled 的 pod 日志全空，连
+        # "取到哪一条"都无从判断）。start 行指名正在取的那条，done 行补结论。
+        _trace(item_id, stype, url, "start")
+        started = time.monotonic()
         body = body_fetcher(url)
+        elapsed = round(time.monotonic() - started, 1)
         if isinstance(body, tuple):  # 详细版：分类处置
             body, status = body
+            _trace(item_id, stype, url, "done", secs=elapsed, status=status)
             if not body:
-                if status == "no_text":
-                    store.mark_body(item_id, doc_id=None, body_status="no_text")
+                if status in TERMINAL_BODY_STATUSES:
+                    store.mark_body(item_id, doc_id=None, body_status=status)
                     skipped += 1
                 else:
                     failed += 1
                 continue
+        else:
+            _trace(item_id, stype, url, "done", secs=elapsed, status="stored")
         item = InfoItem(source=source, source_id=source_id, source_type=stype,
                         published_at=pub, title=title, url=url, doc_id=doc_id)
         new_doc = body_store.put(item, body)
