@@ -63,3 +63,20 @@ kubectl --context cheap -n fd-prod logs job/<name>
 5. **迁移无 runner**：fd-text-core 生产库迁移手工执行
    `kubectl exec deploy/fd-text-core -- sh -c 'cd /app && alembic -c fd_text_core/alembic.ini upgrade head'`。
 6. **本机 7892 代理**：任何回环/内网 httpx 调用前 `NO_PROXY='*'`。
+
+## 正文回填 OOM 与 cninfo 全板块 504（2026-11-11 生产实证）
+
+**回填 OOM（已修）**：`fd-info-backfill-bodies`（每日 22:30 UTC）曾用
+`resources: {}`，吃命名空间 `fd-prod` 的 LimitRange 默认 `512Mi`。队头一份大 PDF
+把容器打成 `OOMKilled / exitCode 137`，**且日志全空**——连取到哪一条都无从判断。
+同镜像实测 pypdf 峰值：16MB→97.6MiB、22MB→126.8MiB、54MB→237.5MiB（约 4.4×体积）。
+三处收口：①清单显式 `requests 256Mi / limits 1Gi`；②`MAX_PDF_BYTES=96MiB` 流式
+硬限，超限判 `oversize` 终态落库（不重试、不占队头）；③每处理一条先打 `start`
+再打 `done` 到 stderr。判据：一轮跑完 stdout 末尾是
+`{"checked":N,...,"skipped":M}` 且 `status.succeeded=1, status.failed` 为空。
+
+**cninfo 全板块 504（不改代码）**：`sse/szse/bse` 同时 504 是上游
+`/new/hisAnnouncement/query` 的瞬时抖动，`CninfoSource.fetch` 正确判
+`unavailable` 并带全部三块 reason，`cmd_fetch` 退出 1，由 **Job 层 backoff 重试**
+自愈（实测 8 个 Error pod 之后连续 3 轮 `ok, total=1200`）。判据：先直连
+`POST` 该端点看是否 200——上游恢复就别改重试语义，否则会把瞬时故障固化成"正常"。
