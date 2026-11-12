@@ -1,0 +1,34 @@
+{
+  "schema": "line-manifest/v1",
+  "line": "info",
+  "public_base_url": "https://mcp.finddatatech.cloud/fd-info",
+  "identity": {
+    "issuer": "https://auth.finddatatech.cloud/oidc",
+    "jwks_uri": "https://auth.finddatatech.cloud/oidc/jwks",
+    "jit_policy": "off",
+    "note": "本仓零入站凭据校验：`FastMCP(\"fd-info\", version=__version__)` 未传 auth、未挂中间件（server.py:31）。本仓作为**下游客户端**才带 bearer 去调 fd-text-core（textcore_search.py:127）。无断言兑换端点，jit_policy=off。"
+  },
+  "auth_tracks": [
+    {
+      "kind": "customer-key",
+      "accepts": "ciyuan-sk",
+      "fallback": false,
+      "enforced": false,
+      "migration_task": "converge-line-identity-and-keys#8.3",
+      "note": "未接：本仓不解析入站凭据。"
+    }
+  ],
+  "scopes": [
+    "line:read"
+  ],
+  "billing": {
+    "plane": "ciyuan",
+    "note": "本仓零计费代码（grep `sub2api` 无命中）：按调用扣费发生在网关/registry 的词元平面，不在本线代码里。只读服务，按调用计量由 registry 记。"
+  },
+  "surfaces": {
+    "mcp": true,
+    "account": false,
+    "admin": false
+  },
+  "note": "6 个只读工具：统一信息条目契约 / 游标查询 / 原文证据定位 / 来源健康度。正文不落本仓（存 fd-text-core），本服务不持有正文也不推送。"
+}
