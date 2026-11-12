@@ -100,9 +100,31 @@ def main() -> None:  # pragma: no cover
     app = build_server()
     if args.http:
         _start_health_server(app, args.http + 1)
-        app.run(transport="http", host="0.0.0.0", port=args.http)
+        _serve_http(app, args.http)
     else:
         app.run()
+
+
+def _serve_http(app, port: int) -> None:  # pragma: no cover - 传输层
+    """HTTP 面：配了 ``MCP_BEARER_TOKEN`` 才套共享 bearer 门，否则原样跑。
+
+    未配置分支保持 ``app.run(transport="http")``——与接入前逐字节一致。这是
+    「开关关闭时行为不变」唯一可靠的实现方式：不是挂一个内部空转的中间件。
+    """
+    from .auth import BearerAuthMiddleware, configured_token
+
+    if not configured_token():
+        app.run(transport="http", host="0.0.0.0", port=port)
+        return
+
+    import uvicorn
+    from starlette.middleware import Middleware
+
+    uvicorn.run(
+        app.http_app(middleware=[Middleware(BearerAuthMiddleware)]),
+        host="0.0.0.0",
+        port=port,
+    )
 
 
 def _start_health_server(app, port: int) -> None:  # pragma: no cover
