@@ -29,6 +29,10 @@ def build_server():  # pragma: no cover - 传输层，测试不装载 fastmcp
     from fastmcp import FastMCP
 
     mcp = FastMCP("fd-info", version=__version__)
+
+    from . import wellknown
+
+    wellknown.register(mcp)  # /.well-known/line-manifest.json（公开、免鉴权、零网络）
     service = build_service()
 
     @mcp.tool
