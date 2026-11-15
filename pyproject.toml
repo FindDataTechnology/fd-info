@@ -6,6 +6,9 @@ requires-python = ">=3.11"
 dependencies = [
     "pypdf>=4.0",
     "httpx>=0.27",
+    # 门 K 线票校验（`line_token.py`）：只有词元轨开启时才走到，但声明在依赖里——
+    # 否则镜像缺包，线上表现为 `not_configured`（门静默不挂），而本机能跑。
+    "pyjwt[crypto]>=2.8",
 ]
 
 # MCP 入口单独挂，核心契约与存储只依赖标准库 + httpx（离线可测）。
