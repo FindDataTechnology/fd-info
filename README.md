@@ -1,5 +1,7 @@
 # fd-info — 柏讯信息流索引
 
+> **Part of the [Wire line (寻数·柏讯)](https://www.finddatatech.cloud/products/wire) of [FindData](https://www.finddatatech.cloud)** — unified information-entry contract, idempotent ingest, cursor queries, evidence addressing. Index only; bodies live in fd-text-core.
+
 统一信息条目契约 + 幂等摄取 + 游标查询 + 原文证据定位。**只做索引**：正文写
 `fd-text-core` 的语料库，本包不复制正文、不做推送。
 
