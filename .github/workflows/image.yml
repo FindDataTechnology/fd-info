@@ -1,12 +1,12 @@
 # Container image publish — GitHub Actions -> Tencent TCR personal edition.
 # fd-info 单镜像：查询面 MCP server + CronJob 摄取入口。
-# 通道：scs001 公开快照线（源仓本地无远端；快照仓排除 deploy/docs）。
+# 通道：公开仓直出（本源仓已公开，标准 runner 免费无限）。
 name: image
 
-# 2026-11-09 按 image-quota-allocation R2 停用私有仓自动出片：出片由公开镜像仓
-# scs001/fd-info-images 承担（免费；已用 git tree 逐 blob 核对与本源仓 0 差异）。
-# 本仓 CI 因组织私有额度耗尽而全部瞬时失败，无产出。保留手动入口以便回滚。
+# 2026-11-19 起由本源仓自己出片：仓已公开，标准 runner 免费无限。
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -35,8 +35,8 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          # fd-cn-gov 是 cn-gov 源运行时依赖（快照仓同级目录，随片携带）
-          pip install -e ./fd-cn-gov
+          # fd-cn-gov 是 cn-gov 源运行时依赖，从 PyPI 装（不再依赖同级目录快照）
+          pip install 'fd-cn-gov>=0.1.3' 
           # server extras 必须装：selfcheck import 上牌入口 fd_info.server
           pip install -e ".[test,server]"
 

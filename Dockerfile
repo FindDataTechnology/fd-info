@@ -1,9 +1,10 @@
 # fd-info image — 柏讯信息流索引 MCP（查询面 + CronJob 摄取入口同一镜像）。
 #
-# 发布通道：GitHub Actions -> TCR（.github/workflows/image.yml，scs001 公开快照线）。
-# **构建单元 = 本快照仓**：同级目录 fd-cn-gov/ 是 cn-gov 源的运行时依赖
-# （11 部委脚本顶层 import scrapling），随快照一起出片；单独的 fd-info 源目录
-# 无法独立构建本镜像。
+# 发布通道：GitHub Actions -> TCR（.github/workflows/image.yml，公开仓直出）。
+#
+# cn-gov 源的运行时依赖（11 部委脚本顶层 import scrapling）从 PyPI 装
+# （`fd-cn-gov`）。此前它靠同级目录 fd-cn-gov/ 随快照携带，那份快照只存在于
+# scs001/fd-info-images；改从 PyPI 后本源仓可独立构建。
 # 运行形态：
 #   - 查询面（Deployment）：FD_INFO_DB/FD_INFO_SPOOL 必须指向持久卷；单副本（单文件 SQLite）。
 #   - 摄取（CronJob）：python -m fd_info.cli fetch --source <name>
@@ -22,12 +23,11 @@ WORKDIR /app
 # 线自描述端点 /.well-known/line-manifest.json（change converge-line-identity-and-keys 1.4）：
 # 仓内那份是唯一真源，端点原样回吐；不 COPY 进镜像则镜像里永远 404。
 COPY line-manifest.json ./
-COPY fd-cn-gov ./fd-cn-gov
 COPY pyproject.toml ./
 COPY fd_info ./fd_info
 
 RUN if [ -n "$PIP_INDEX_URL" ]; then PIPOPT="-i $PIP_INDEX_URL"; else PIPOPT=""; fi \
- && pip install --no-cache-dir $PIPOPT ./fd-cn-gov \
+ && pip install --no-cache-dir $PIPOPT 'fd-cn-gov>=0.1.3' \
  && pip install --no-cache-dir $PIPOPT ".[server]" \
  && useradd -m -u 1000 appuser \
  && mkdir -p /data/spool && chown -R appuser /data
