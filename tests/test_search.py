@@ -54,6 +54,22 @@ def test_index_search_is_labeled(tmp_path):
     store.close()
 
 
+def test_index_search_filters_by_source_code(tmp_path):
+    # 主体过滤与关键词检索 AND 组合（info-entity-attribution）
+    store = Store(tmp_path / "i.db")
+    service = InfoService(store, MemoryBodyStore())
+    service.ingest(SourceResult("cninfo", "ok", items=(
+        item(source_id="a1", title="季度报告", entities=("600519",)),
+        item(source_id="a2", title="季度报告", entities=("000001",)),
+    ), window_checked=True))
+    hit = service.search_info("季度", source_codes=["600519"])
+    assert hit["count"] == 1
+    assert hit["items"][0]["source_id"] == "a1"
+    miss = service.search_info("季度", source_codes=["999999"])
+    assert miss["count"] == 0
+    store.close()
+
+
 def test_locate_returns_quote_or_structured_error(tmp_path):
     body = MemoryBodyStore()
     service = InfoService(Store(tmp_path / "i.db"), body)

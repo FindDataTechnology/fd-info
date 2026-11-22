@@ -41,14 +41,21 @@ def build_server():  # pragma: no cover - 传输层，测试不装载 fastmcp
         sources: list[str] | None = None,
         source_types: list[str] | None = None,
         published_after: str | None = None,
+        source_codes: list[str] | None = None,
         limit: int = 50,
     ) -> dict:
-        """按发布时间倒序列出信息条目；cursor 来自上一页的 next_cursor。"""
+        """按发布时间倒序列出信息条目；cursor 来自上一页的 next_cursor。
+
+        source_codes 按主体标识（证券代码）过滤——给一个或多个代码，只返回
+        entities 含任一代码的条目（info-entity-attribution）。空结果时返回
+        empty_reason 说清「该主体无条目」还是「限定源不提供主体标注」。
+        """
         return service.list_since(
             cursor=cursor,
             sources=sources,
             source_types=source_types,
             published_after=published_after,
+            source_codes=source_codes,
             limit=limit,
         )
 
@@ -66,14 +73,19 @@ def build_server():  # pragma: no cover - 传输层，测试不装载 fastmcp
         sources: list[str] | None = None,
         source_types: list[str] | None = None,
         published_after: str | None = None,
+        source_codes: list[str] | None = None,
         limit: int = 20,
     ) -> dict:
-        """检索信息条目；返回 mode 字段说明走的是语义检索还是索引检索。"""
+        """检索信息条目；返回 mode 字段说明走的是语义检索还是索引检索。
+
+        source_codes 按主体标识（证券代码）过滤，与关键词检索 AND 组合。
+        """
         return service.search_info(
             query,
             sources=sources,
             source_types=source_types,
             published_after=published_after,
+            source_codes=source_codes,
             limit=limit,
         )
 

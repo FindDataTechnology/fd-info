@@ -16,6 +16,10 @@ from typing import Any
 
 from .models import InfoItem, utc_now
 
+#: 带主体归属的来源集合（info-entity-attribution）。新增会为条目填 entities 的
+#: 源时须同步此集合——它决定「该源不支持主体标注」空态的判定（本设计 D4）。
+ENTITY_ATTRIBUTED_SOURCES = frozenset({"cninfo", "sse-interaction"})
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS info_items (
     item_id       TEXT PRIMARY KEY,
@@ -129,6 +133,36 @@ class Store:
             )
             self._conn.commit()
 
+    def set_entities(self, item_id: str, entities: tuple[str, ...] | list[str]) -> bool:
+        """回填主体归属（info-entity-attribution）。返回是否真的改了行。
+
+        幂等：与现存 entities 相同则不写。仅用于历史回填——新入库在 fetcher
+        处直写，不走此路径。
+        """
+        payload = json.dumps(list(entities), ensure_ascii=False)
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT entities FROM info_items WHERE item_id=?", (item_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            if (row["entities"] or "[]") == payload:
+                return False
+            self._conn.execute(
+                "UPDATE info_items SET entities=? WHERE item_id=?", (payload, item_id)
+            )
+            self._conn.commit()
+            return True
+
+    def distinct_published_dates(self, source: str) -> list[str]:
+        """某源已存条目的发布日期（YYYY-MM-DD）去重升序——回填重扫窗口用。"""
+        rows = self._conn.execute(
+            "SELECT DISTINCT substr(published_at, 1, 10) AS d FROM info_items"
+            " WHERE source=? ORDER BY d",
+            (source,),
+        ).fetchall()
+        return [r["d"] for r in rows if r["d"]]
+
     def set_source_state(
         self,
         source: str,
@@ -176,6 +210,7 @@ class Store:
         sources: list[str] | None = None,
         source_types: list[str] | None = None,
         published_after: str | None = None,
+        source_codes: list[str] | None = None,
         limit: int = 50,
     ) -> dict[str, Any]:
         limit = max(1, min(int(limit), 500))
@@ -190,6 +225,15 @@ class Store:
         if published_after:
             where.append("published_at >= ?")
             params.append(published_after)
+        if source_codes:
+            # 主体归属精确成员判定（json_each 防变长代码子串误命中），
+            # 置于 cursor 条件之前——只收窄结果集，翻页语义不变（设计 D2/D3）。
+            placeholders = ",".join("?" * len(source_codes))
+            where.append(
+                "EXISTS (SELECT 1 FROM json_each(info_items.entities)"
+                f" WHERE json_each.value IN ({placeholders}))"
+            )
+            params.extend(source_codes)
         if cursor:
             pub, item = _decode_cursor(cursor)
             where.append("(published_at < ? OR (published_at = ? AND item_id < ?))")
@@ -208,7 +252,12 @@ class Store:
             if has_more and items
             else None
         )
-        return {"items": items, "next_cursor": next_cursor, "has_more": has_more}
+        result: dict[str, Any] = {"items": items, "next_cursor": next_cursor, "has_more": has_more}
+        # 空态如实区分（info-entity-attribution）：提供了主体过滤但空结果时，
+        # 说清是「该主体无条目」还是「限定源全不提供主体标注」。
+        if source_codes and not items:
+            result["empty_reason"] = empty_reason_for(sources, source_types)
+        return result
 
     def health(self) -> list[dict[str, Any]]:
         rows = self._conn.execute("SELECT * FROM source_state ORDER BY source").fetchall()
@@ -244,6 +293,22 @@ def _decode(row: sqlite3.Row) -> dict[str, Any]:
     data["entities"] = json.loads(data.get("entities") or "[]")
     data["withdrawn"] = bool(data.get("withdrawn"))
     return data
+
+
+def empty_reason_for(
+    sources: list[str] | None, source_types: list[str] | None
+) -> str:
+    """主体过滤空结果的如实原因（info-entity-attribution）。
+
+    - ``sources_lack_entity_attribution``：被限定的源全在不带主体标注集合内——
+      空是「该源无主体标注」而非「该主体无条目」。
+    - ``no_items_for_subject``：其余情形——该主体在窗口内确实无条目。
+
+    source_types 在此不参与判定（主体标注按源，不按类型）。
+    """
+    if sources and set(sources).isdisjoint(ENTITY_ATTRIBUTED_SOURCES):
+        return "sources_lack_entity_attribution"
+    return "no_items_for_subject"
 
 
 def _encode_cursor(published_at: str, item_id: str) -> str:

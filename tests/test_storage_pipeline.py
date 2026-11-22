@@ -59,6 +59,48 @@ def test_withdrawal_is_recorded_not_deleted(store):
     assert len(store.list_since()["items"]) == 1
 
 
+def test_list_since_filters_by_source_code(store):
+    # info-entity-attribution：按主体标识精确命中，不命中其他代码
+    store.upsert(item(source_id="600519", title="茅台公告", entities=("600519",)))
+    store.upsert(item(source_id="000001", title="平安公告", entities=("000001",)))
+    hits = store.list_since(source_codes=["600519"])["items"]
+    assert [h["source_id"] for h in hits] == ["600519"]
+
+
+def test_list_since_multi_code_hits_either(store):
+    store.upsert(item(source_id="x1", title="联合公告", entities=("300081", "600519")))
+    store.upsert(item(source_id="x2", title="无关", entities=("000002",)))
+    # 任一代码命中即返回
+    assert {h["source_id"] for h in store.list_since(source_codes=["600519"])["items"]} == {"x1"}
+    assert {h["source_id"] for h in store.list_since(source_codes=["300081"])["items"]} == {"x1"}
+
+
+def test_no_source_filter_is_byte_identical(store):
+    store.upsert(item(source_id="a", entities=("600519",)))
+    store.upsert(item(source_id="b", entities=()))
+    # 不传 source_codes：与基线一致，空实体条目也返回
+    assert len(store.list_since()["items"]) == 2
+
+
+def test_no_substring_false_positive(store):
+    # json_each 精确成员判定：1300081 不应被 300081 命中
+    store.upsert(item(source_id="c", entities=("1300081",)))
+    assert store.list_since(source_codes=["300081"])["items"] == []
+
+
+def test_empty_reason_no_items_for_subject(store):
+    store.upsert(item(source_id="a", entities=("600519",)))
+    out = store.list_since(source_codes=["999999"], sources=["cninfo"])
+    assert out["items"] == []
+    assert out["empty_reason"] == "no_items_for_subject"
+
+
+def test_empty_reason_sources_lack_attribution(store):
+    out = store.list_since(source_codes=["600519"], sources=["cn-gov"])
+    assert out["items"] == []
+    assert out["empty_reason"] == "sources_lack_entity_attribution"
+
+
 def test_health_tracks_failures(store):
     store.set_source_state("cninfo", ok=True, watermark_published="2026-10-20T00:00:00Z")
     assert store.health()[0]["status"] == "ok"

@@ -70,6 +70,7 @@ class InfoService:
         sources: list[str] | None = None,
         source_types: list[str] | None = None,
         published_after: str | None = None,
+        source_codes: list[str] | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
         if self.search_hook is not None:
@@ -82,6 +83,7 @@ class InfoService:
                     sources=sources,
                     source_types=source_types,
                     published_after=published_after,
+                    source_codes=source_codes,
                     limit=limit,
                 )
                 result["degraded_reason"] = str(exc)
@@ -100,6 +102,8 @@ class InfoService:
                     continue
                 if published_after and row["published_at"] < published_after:
                     continue
+                if source_codes and not (set(row.get("entities") or ()) & set(source_codes)):
+                    continue
                 row = {**row, "chunks": hit.get("chunks", [])}
                 items.append(row)
             return {"items": items[:limit], "count": len(items[:limit]), "mode": "text-core"}
@@ -109,6 +113,7 @@ class InfoService:
             sources=sources,
             source_types=source_types,
             published_after=published_after,
+            source_codes=source_codes,
             limit=limit,
         )
 
@@ -119,6 +124,7 @@ class InfoService:
         sources: list[str] | None,
         source_types: list[str] | None,
         published_after: str | None,
+        source_codes: list[str] | None = None,
         limit: int,
     ) -> dict[str, Any]:
         """索引检索：LIKE 兜底。显式 mode 让调用方知道这不是语义检索。"""
@@ -130,5 +136,6 @@ class InfoService:
             and (not sources or r["source"] in sources)
             and (not source_types or r["source_type"] in source_types)
             and (not published_after or r["published_at"] >= published_after)
+            and (not source_codes or (set(r.get("entities") or ()) & set(source_codes)))
         ][:limit]
         return {"items": items, "count": len(items), "mode": "index"}

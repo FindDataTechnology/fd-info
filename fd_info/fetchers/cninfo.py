@@ -114,7 +114,29 @@ class CninfoSource:
             published=parse_list_date(str(published))[:10],
             title=title,
             url=url,
+            entities=self._sec_codes(row),
         )
+
+    @staticmethod
+    def _sec_codes(row: dict[str, Any]) -> tuple[str, ...]:
+        """条目携带的证券代码（主体归属，info-entity-attribution）。
+
+        列表接口每行带 ``secCode``（6 位 A 股代码）；多家联合披露时接口以
+        ``secNameList`` 给出全部代码。取全部、去重保序；两个字段都没有时如实
+        返回空元组（部委形态不猜造）。
+        """
+        codes: list[str] = []
+        name_list = row.get("secNameList") or []
+        if isinstance(name_list, list):
+            for entry in name_list:
+                if isinstance(entry, dict):
+                    code = str(entry.get("secCode") or "").strip()
+                    if code:
+                        codes.append(code)
+        single = str(row.get("secCode") or "").strip()
+        if single:
+            codes.append(single)
+        return tuple(dict.fromkeys(codes))  # 去重保序
 
     @staticmethod
     def _http(data: dict[str, str]) -> dict[str, Any]:

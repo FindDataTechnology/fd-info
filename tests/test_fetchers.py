@@ -17,9 +17,59 @@ def cninfo_payload():
                 "announcementTitle": "关于 2026 年第三季度报告的公告",
                 "announcementTime": 1729468800000,  # 2024-10-21
                 "adjunctUrl": "finalpage/2026-10-21/1220000001.PDF",
+                "secCode": "300081",
+                "secName": "ST恒信",
             }
         ]
     }
+
+
+def test_cninfo_captures_sec_code_as_entity():
+    # info-entity-attribution：列表记录带 secCode → 条目 entities 含该代码
+    src = CninfoSource(transport=lambda data: cninfo_payload(), columns=("sse",))
+    result = src.fetch("2026-10-20", "2026-10-22")
+    assert result.status == "ok"
+    assert result.items[0].entities == ("300081",)
+
+
+def test_cninfo_captures_multi_codes_from_sec_name_list():
+    # 联合披露：secNameList 给全部代码 → entities 含全部、去重保序
+    def multi(data):
+        return {
+            "announcements": [
+                {
+                    "announcementId": "1220000002",
+                    "announcementTitle": "联合公告",
+                    "announcementTime": 1729468800000,
+                    "adjunctUrl": "finalpage/2026-10-21/1220000002.PDF",
+                    "secCode": "600519",
+                    "secNameList": [{"secCode": "300081"}, {"secCode": "600519"}],
+                }
+            ]
+        }
+    src = CninfoSource(transport=multi, columns=("sse",))
+    items = src.fetch("2026-10-20", "2026-10-22").items
+    assert set(items[0].entities) == {"300081", "600519"}
+    # 去重：600519 在列表与单值都出现，只留一份
+    assert items[0].entities.count("600519") == 1
+
+
+def test_cninfo_no_sec_fields_stays_empty():
+    # 部委形态（无任何证券字段）：entities 如实为空，不猜造
+    def no_codes(data):
+        return {
+            "announcements": [
+                {
+                    "announcementId": "1220000003",
+                    "announcementTitle": "某部委通知",
+                    "announcementTime": 1729468800000,
+                    "adjunctUrl": "finalpage/2026-10-21/1220000003.PDF",
+                }
+            ]
+        }
+    src = CninfoSource(transport=no_codes, columns=("sse",))
+    items = src.fetch("2026-10-20", "2026-10-22").items
+    assert items[0].entities == ()
 
 
 def test_cninfo_replay_is_idempotent():
