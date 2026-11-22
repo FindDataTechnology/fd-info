@@ -64,4 +64,18 @@ def test_fetch_window_extracts_codes():
     ])
     out = mod._fetch_window(["2026-10-20", "2026-10-21"], source=fake)
     assert out == {"a": ("600519",)}
-    assert fake.calls == [("2026-10-20", "2026-10-21")]  # 合并成一个窗口
+    # 逐日拉（不是合并区间——合并会因 CNINFO 分页上限漏掉大半天数）
+    assert fake.calls == [("2026-10-20", "2026-10-20"), ("2026-10-21", "2026-10-21")]
+
+
+def test_untagged_items_on_date_returns_all(tmp_path):
+    """单日全量不分页截断（list_since 500 上限会漏，回填要全量）。"""
+    s = Store(tmp_path / "i.db")
+    for i in range(600):
+        s.upsert(item(f"x{i}", "2026-10-21"))
+    s.upsert(item("tagged", "2026-10-21", entities=("600519",)))
+    s.upsert(item("other", "2026-10-22"))
+    got = s.untagged_items_on_date("cninfo", "2026-10-21")
+    assert len(got) == 600  # 全部未标注，超 500 不截断
+    assert all(r["entities"] == [] for r in got)
+    s.close()

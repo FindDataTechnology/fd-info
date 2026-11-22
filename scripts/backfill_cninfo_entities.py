@@ -30,26 +30,33 @@ SOURCE = "cninfo"
 
 
 def _fetch_window(dates: list[str], *, source=None) -> dict[str, tuple[str, ...]]:
-    """重拉若干发布日的 CNINFO 列表，返回 ``{source_id: entities}``。
+    """逐日重拉 CNINFO 列表，返回 ``{source_id: entities}``。
 
-    按日期分组批量拉：CNINFO 的 ``seDate`` 支持闭区间，连续日期合并成一个
-    窗口拉取，减少请求数。``source`` 可注入（测试用假实现）。
+    **必须逐日拉**：CNINFO 单次查询受 ``pageSize×max_pages`` 截断（3 个 column
+    × 20 页 × 30 ≈ 1800 上限），把多天合并成一个区间拉会漏掉大半天数的条目，
+    导致回填匹配不上（2026-11-22 生产 dry-run 实测：3 天合并拉只得 600 条，
+    逐日拉每天 1200 条且全覆盖）。``source`` 可注入（测试用假实现）。
     """
     if not dates:
         return {}
     source = source or CninfoSource()
-    since, until = min(dates), max(dates)
-    result = source.fetch(since, until)
     out: dict[str, tuple[str, ...]] = {}
-    for it in result.items:
-        if it.entities:
-            out[it.source_id] = it.entities
+    for d in dates:
+        result = source.fetch(d, d)
+        for it in result.items:
+            if it.entities:
+                out[it.source_id] = it.entities
     return out
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--apply", action="store_true", help="落库（缺省 dry-run）")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="显式 dry-run（缺省行为即 dry-run；此 flag 仅为文档一致，互斥于 --apply）",
+    )
     ap.add_argument(
         "--max-windows",
         type=int,
@@ -74,14 +81,7 @@ def main() -> int:
         pending: list[tuple[str, tuple[str, ...]]] = []
         unbackfillable = 0
         for d in targets:
-            page = store.list_since(
-                sources=[SOURCE], published_after=f"{d}T00:00:00Z", limit=500
-            )
-            for row in page["items"]:
-                if not row["published_at"].startswith(d):
-                    continue
-                if row.get("entities"):
-                    continue  # 已有代码，跳过
+            for row in store.untagged_items_on_date(SOURCE, d):
                 codes = code_map.get(row["source_id"])
                 if codes:
                     pending.append((row["item_id"], codes))

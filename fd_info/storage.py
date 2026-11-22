@@ -163,6 +163,19 @@ class Store:
         ).fetchall()
         return [r["d"] for r in rows if r["d"]]
 
+    def untagged_items_on_date(self, source: str, date: str) -> list[dict[str, Any]]:
+        """某源某发布日、entities 为空的条目全量（回填用，不分页截断）。
+
+        ``list_since`` 的 500 行上限会漏掉单日 800-1200 条里的大部分——回填
+        要全量比对，故单独一条直查。date 为 ``YYYY-MM-DD``。
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM info_items WHERE source=? AND substr(published_at,1,10)=?"
+            " AND (entities IS NULL OR entities='[]')",
+            (source, date),
+        ).fetchall()
+        return [_decode(r) for r in rows]
+
     def set_source_state(
         self,
         source: str,

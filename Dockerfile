@@ -25,6 +25,9 @@ WORKDIR /app
 COPY line-manifest.json ./
 COPY pyproject.toml ./
 COPY fd_info ./fd_info
+# 运维脚本（回填/验收）：随镜像带上，生产 pod 内可直接跑。
+# 不 COPY 则 pod 里 /app/scripts 不存在（2026-11-22 回填时实测踩到）。
+COPY scripts ./scripts
 
 RUN if [ -n "$PIP_INDEX_URL" ]; then PIPOPT="-i $PIP_INDEX_URL"; else PIPOPT=""; fi \
  && pip install --no-cache-dir $PIPOPT 'fd-cn-gov>=0.1.3' \
