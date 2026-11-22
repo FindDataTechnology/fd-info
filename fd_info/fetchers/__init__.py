@@ -6,15 +6,17 @@ from .base import Source
 from .cninfo import CninfoSource
 from .interaction import InteractionSource
 from .ministry import MinistrySource
+from .news import NewsSource
 
 SOURCES: dict[str, type[Source]] = {
     CninfoSource.name: CninfoSource,
     MinistrySource.name: MinistrySource,
     InteractionSource.name: InteractionSource,
+    NewsSource.name: NewsSource,
 }
 
-#: 默认启用：公告与部委。互动待上游恢复后加入。
-DEFAULT_ENABLED: tuple[str, ...] = (CninfoSource.name, MinistrySource.name)
+#: 默认启用：公告、部委与新闻 RSS。互动待上游恢复后加入。
+DEFAULT_ENABLED: tuple[str, ...] = (CninfoSource.name, MinistrySource.name, NewsSource.name)
 
 
 def enabled_sources(names: list[str] | None = None) -> list[Source]:

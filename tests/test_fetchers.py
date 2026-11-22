@@ -427,3 +427,95 @@ def test_sse_empty_window_with_szse_is_partial_not_unavailable():
     result = src.fetch("2026-01-01", "2026-01-02")
     assert result.status in ("partial", "ok")
     assert result.status != "unavailable"
+
+
+# ---------------------------------------------------------------- 新闻 RSS
+# 固定样本照实调抓包裁剪（中新网纯文本 description + 华尔街见闻整篇 HTML），
+# 绝不真打网。
+
+NEWS_RSS = """<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel>
+  <title>财经要闻</title>
+  <item>
+    <title>从杭州看全球丝绸治理：一座产业城市为何成为新坐标？</title>
+    <link>https://www.chinanews.com.cn/cj/2026/11-22/10736032.shtml</link>
+    <description> 中新网杭州11月22日电 题：从杭州看全球丝绸治理。</description>
+    <pubDate>Sun, 22 Nov 2026 13:39:35 +0800</pubDate>
+  </item>
+  <item>
+    <title>旧的新闻，窗口外</title>
+    <link>https://www.chinanews.com.cn/cj/2026/11-20/10700000.shtml</link>
+    <description>旧闻。</description>
+    <pubDate>Fri, 20 Nov 2026 10:00:00 +0800</pubDate>
+  </item>
+  <item>
+    <title>没有时间的条目应丢弃</title>
+    <link>https://www.chinanews.com.cn/cj/2026/11-22/10736099.shtml</link>
+    <description>无时间。</description>
+  </item>
+</channel></rss>"""
+
+HTML_RSS = """<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel>
+  <title>华尔街见闻</title>
+  <item>
+    <title>阻止美联储加息的最快方式</title>
+    <link>https://wallstreetcn.com/articles/3786446</link>
+    <description> &lt;section&gt;&lt;p&gt;美银首席投资策略师指出。&lt;/p&gt;
+      &lt;p&gt;&lt;img src="x.png"/&gt;&lt;/p&gt;&lt;p&gt;标普500单周下跌8.4%。&lt;/p&gt;&lt;/section&gt; </description>
+    <pubDate>Sun, 22 Nov 2026 11:56:21 +0800</pubDate>
+  </item>
+</channel></rss>"""
+
+
+def news_router(url, headers):
+    if "chinanews" in url:
+        return NEWS_RSS
+    if "wallstreetcn" in url:
+        return HTML_RSS
+    raise AssertionError(f"意外请求：{url}")
+
+
+def test_news_rss_extracts_items_and_filters_window():
+    from fd_info.fetchers.news import NewsSource
+
+    result = NewsSource(transport=news_router).fetch("2026-11-21", "2026-11-22")
+    assert result.status == "ok" and result.window_checked
+    assert [i.title for i in result.items] == [
+        "从杭州看全球丝绸治理：一座产业城市为何成为新坐标？",
+        "阻止美联储加息的最快方式",
+    ]
+    first, second = result.items
+    assert first.source == "news-rss"
+    assert first.source_type == "news"
+    assert first.source_id == "https://www.chinanews.com.cn/cj/2026/11-22/10736032.shtml"
+    assert first.published_at == "2026-11-22T05:39:35Z"  # 13:39（+0800）→ UTC
+    assert first.body.startswith("中新网杭州11月22日电")
+    assert first.entities == ()  # RSS 不带证券代码，不猜造
+    # 华尔街见闻的整篇 HTML 正文剥成干净文本
+    assert "美银首席投资策略师指出" in second.body
+    assert "标普500单周下跌8.4%" in second.body
+    assert "<" not in second.body
+
+
+def test_news_rss_partial_and_unavailable():
+    from fd_info.fetchers.news import NewsSource
+
+    def half(url, headers):
+        if "wallstreetcn" in url:
+            raise httpx.ConnectError("connection refused")
+        return NEWS_RSS
+
+    feeds = (("chinanews", "https://www.chinanews.com.cn/rss/finance.xml"),
+             ("wallstreetcn", "https://dedicated.wallstreetcn.com/rss.xml"))
+    result = NewsSource(transport=half, feeds=feeds).fetch("2026-11-21", "2026-11-22")
+    assert result.status == "partial"
+    assert result.missing and "wallstreetcn" in result.missing[0]
+    assert len(result.items) == 1
+
+    def down(url, headers):
+        raise httpx.ConnectError("connection refused")
+
+    result = NewsSource(transport=down, feeds=feeds).fetch("2026-11-21", "2026-11-22")
+    assert result.status == "unavailable"
+    assert "connection refused" in result.reason

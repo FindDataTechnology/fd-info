@@ -50,6 +50,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         source = cls()
         result = source.fetch(since, until)
         body_fetcher = {"cn-gov": ministry_body, "cninfo": cninfo_body}.get(name)
+        # news-rss 的正文随 RSS description 一起来（fetch 时自带），不走回填。
         summary = service.ingest(result, body_fetcher=body_fetcher)
         out.append(summary.to_dict())
     print(json.dumps({"since": since, "until": until, "runs": out}, ensure_ascii=False))
