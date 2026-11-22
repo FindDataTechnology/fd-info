@@ -13,7 +13,7 @@ dependencies = [
 
 # MCP 入口单独挂，核心契约与存储只依赖标准库 + httpx（离线可测）。
 [project.optional-dependencies]
-server = ["fastmcp>=3.4,<4"]
+server = ["fastmcp>=4.2.4,<5"]
 test = ["pytest>=7.4"]
 
 [build-system]
