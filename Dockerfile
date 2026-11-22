@@ -29,9 +29,14 @@ COPY fd_info ./fd_info
 # 不 COPY 则 pod 里 /app/scripts 不存在（2026-11-22 回填时实测踩到）。
 COPY scripts ./scripts
 
+# scrapling 末装并钉 <0.5：fd-cn-gov 用 AsyncDynamicSession（0.4.x 有、
+# 0.5.0 移除）。不钉会在 rebuild 时被顶到 0.5.x → cn-gov 全部 11 个部委源
+# 导入失败、CronJob 全 Error（2026-11-22 实证）。必须最后一次装，防止
+# 前述 pip 步骤把它又升上去。
 RUN if [ -n "$PIP_INDEX_URL" ]; then PIPOPT="-i $PIP_INDEX_URL"; else PIPOPT=""; fi \
  && pip install --no-cache-dir $PIPOPT 'fd-cn-gov>=0.1.3' \
  && pip install --no-cache-dir $PIPOPT ".[server]" \
+ && pip install --no-cache-dir $PIPOPT 'scrapling[fetchers]>=0.4,<0.5' \
  && useradd -m -u 1000 appuser \
  && mkdir -p /data/spool && chown -R appuser /data
 
