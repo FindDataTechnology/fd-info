@@ -100,3 +100,16 @@ def test_cursor_scoped_to_window(tmp_path):
     assert store.get_cursor("govcn", "2026-11-21|2026-11-22") == "old-cursor"
     # 换窗口 → 游标作废
     assert store.get_cursor("govcn", "2026-11-22|2026-11-23") is None
+
+
+def test_cursor_keyed_by_since_not_until(tmp_path):
+    """游标按 since 单值绑定：until 推后（跨天）不影响续爬，游标仍有效。
+
+    回归：曾用 f"{since}|{until}" 作窗口键，until 每天漂移 → 跨天续跑游标作废、
+    从头重抓。现按 since 单值，until 推进不废游标。
+    """
+    store = Store(tmp_path / "t.db")
+    since = "2016-01-01"
+    store.set_cursor("govcn", since, "1:175")  # cli 传 window=since
+    # 次日 until 变了，但窗口键仍是 since → 游标还在
+    assert store.get_cursor("govcn", since) == "1:175"

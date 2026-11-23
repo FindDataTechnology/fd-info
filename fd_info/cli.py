@@ -33,14 +33,19 @@ def _service() -> InfoService:
     return InfoService(store, body_store)
 
 
-def _window(days: int) -> tuple[str, str]:
+def _window(days: int, since: str | None = None, until: str | None = None) -> tuple[str, str]:
+    """时间窗。显式 since/until 优先（回填用固定窗口——游标按窗口绑定，若起点随
+    「今天」漂移，跨天续跑时游标会作废、从头重抓；固定 since 才能多轮续爬）。"""
+    if since or until:
+        s, u = day_bounds(days)
+        return (since or s, until or u)
     return day_bounds(days)
 
 
 def cmd_fetch(args: argparse.Namespace) -> int:
     service = _service()
     names = args.source or list(DEFAULT_ENABLED)
-    since, until = _window(args.days)
+    since, until = _window(args.days, getattr(args, "since", None), getattr(args, "until", None))
     out = []
     for name in names:
         cls = SOURCES.get(name)
@@ -52,7 +57,11 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         # 分页续爬：源若实现 fetch_page(cursor, since, until)->PageResult，走
         # ingest_paged（每页落库+推进游标，挂了下轮续）；否则整窗 fetch。
         if hasattr(source, "fetch_page"):
-            window = f"{since}|{until}"
+            # 游标按 **since 单值** 绑定，不绑 since|until。理由：until 每天漂移，
+            # 绑完整窗口会让跨天续跑作废游标、从头重抓。since 固定（回填显式
+            # --since 或日常 --days 起算）即续爬点稳定；until 推后多抓的新条目
+            # 幂等，不影响。日常增量 since 每天变 → 新窗口从头（窗口本就小）。
+            window = since
             summary = service.ingest_paged(
                 name, window,
                 lambda cursor: source.fetch_page(cursor, since, until),
@@ -149,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
     fetch = sub.add_parser("fetch", help="拉取一轮信息条目")
     fetch.add_argument("--source", action="append", choices=sorted(SOURCES))
     fetch.add_argument("--days", type=int, default=2)
+    fetch.add_argument("--since", default=None, help="显式起始日 YYYY-MM-DD（回填用固定窗口，保证游标续爬）")
+    fetch.add_argument("--until", default=None, help="显式结束日 YYYY-MM-DD（缺省=今天）")
     fetch.add_argument("--max-pages", type=int, default=None,
                        help="分页源单轮页数上限（缺省不限，一轮抓到底；设小则分多轮续爬）")
     fetch.set_defaults(func=cmd_fetch)
