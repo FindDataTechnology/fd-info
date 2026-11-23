@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-SOURCE_TYPES = ("announcement", "ministry", "interaction", "news")
+SOURCE_TYPES = ("announcement", "ministry", "interaction", "news", "policy")
 BODY_STATUSES = ("pending", "stored", "failed", "no_text", "oversize")
 # 终态：重试无意义的「取不到正文」。回填按 published_at 最新优先排队，终态若不落库
 # 就会每天占住队头、把真正可取的老条目挤下去（2026-10-27 为 no_text 立的口径，
