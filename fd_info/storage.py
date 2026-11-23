@@ -54,7 +54,12 @@ CREATE TABLE IF NOT EXISTS source_state (
     last_success_at     TEXT,
     last_error          TEXT,
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
-    enabled             INTEGER NOT NULL DEFAULT 1
+    enabled             INTEGER NOT NULL DEFAULT 1,
+    -- 断点续爬（大源支持）：分页游标 + 它所属的窗口（since|until）。
+    -- 与 watermark 的区别：watermark 是「整轮结束」才推进，跨轮去重；
+    -- cursor 是「一页结束」就推进，供**同一窗口内**挂了续抓，不重抓已落库的页。
+    cursor              TEXT,
+    cursor_window       TEXT
 );
 """
 
@@ -67,7 +72,19 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """幂等加列（CREATE TABLE IF NOT EXISTS 不会给已存在的旧表补列）。
+
+        生产库建于断点续爬之前，缺 cursor/cursor_window 两列；不补则读写这两列
+        会 OperationalError（no such column）。
+        """
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(source_state)")}
+        for name, decl in (("cursor", "TEXT"), ("cursor_window", "TEXT")):
+            if name not in cols:
+                self._conn.execute(f"ALTER TABLE source_state ADD COLUMN {name} {decl}")
 
     def close(self) -> None:
         self._conn.close()
@@ -206,6 +223,34 @@ class Store:
                        WHERE source=?""",
                     (error or "unknown", source),
                 )
+            self._conn.commit()
+
+    # ----- 断点续爬游标 -----------------------------------------------------
+
+    def get_cursor(self, source: str, window: str) -> str | None:
+        """读该源在该窗口下的续爬游标。
+
+        仅当游标所属窗口 == 当前窗口时返回它；窗口变了（新的一天/新 since）
+        游标作废，从该窗口起点重来——游标只在同一窗口内跨「进程重启」有意义。
+        """
+        row = self._conn.execute(
+            "SELECT cursor, cursor_window FROM source_state WHERE source=?", (source,)
+        ).fetchone()
+        if not row or row["cursor_window"] != window:
+            return None
+        return row["cursor"]
+
+    def set_cursor(self, source: str, window: str, cursor: str | None) -> None:
+        """推进/清除续爬游标。每抓完一页调用一次（与 upsert 的逐条 commit 独立）。"""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO source_state (source) VALUES (?) ON CONFLICT(source) DO NOTHING",
+                (source,),
+            )
+            self._conn.execute(
+                "UPDATE source_state SET cursor=?, cursor_window=? WHERE source=?",
+                (cursor, window, source),
+            )
             self._conn.commit()
 
     # ----- 读取 -------------------------------------------------------------

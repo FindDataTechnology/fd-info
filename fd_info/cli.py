@@ -48,10 +48,21 @@ def cmd_fetch(args: argparse.Namespace) -> int:
             out.append({"source": name, "status": "unavailable", "reason": "未注册的来源"})
             continue
         source = cls()
-        result = source.fetch(since, until)
         body_fetcher = {"cn-gov": ministry_body, "cninfo": cninfo_body}.get(name)
-        # news-rss 的正文随 RSS description 一起来（fetch 时自带），不走回填。
-        summary = service.ingest(result, body_fetcher=body_fetcher)
+        # 分页续爬：源若实现 fetch_page(cursor, since, until)->PageResult，走
+        # ingest_paged（每页落库+推进游标，挂了下轮续）；否则整窗 fetch。
+        if hasattr(source, "fetch_page"):
+            window = f"{since}|{until}"
+            summary = service.ingest_paged(
+                name, window,
+                lambda cursor: source.fetch_page(cursor, since, until),
+                body_fetcher=body_fetcher,
+                max_pages=getattr(args, "max_pages", None),
+            )
+        else:
+            result = source.fetch(since, until)
+            # news-rss 的正文随 RSS description 一起来（fetch 时自带），不走回填。
+            summary = service.ingest(result, body_fetcher=body_fetcher)
         out.append(summary.to_dict())
     print(json.dumps({"since": since, "until": until, "runs": out}, ensure_ascii=False))
     return 0 if all(r.get("status") in ("ok", "partial") for r in out) else 1
@@ -138,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     fetch = sub.add_parser("fetch", help="拉取一轮信息条目")
     fetch.add_argument("--source", action="append", choices=sorted(SOURCES))
     fetch.add_argument("--days", type=int, default=2)
+    fetch.add_argument("--max-pages", type=int, default=None,
+                       help="分页源单轮页数上限（缺省不限，一轮抓到底；设小则分多轮续爬）")
     fetch.set_defaults(func=cmd_fetch)
 
     health = sub.add_parser("health", help="来源健康度")

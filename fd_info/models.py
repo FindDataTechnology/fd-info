@@ -160,3 +160,29 @@ class SourceResult:
     @property
     def is_usable(self) -> bool:
         return self.status in ("ok", "partial")
+
+
+@dataclass(frozen=True)
+class PageResult:
+    """分页摄取的一页（断点续爬协议）。
+
+    与 SourceResult（整窗一次交代）相对：本类型只交代**一页**。
+    - ``usable=False`` 表示这一页取不到（上游不可用），流水线据此标源不可用，
+      游标停留在已落库的上一页。
+    - ``done=True`` 表示该窗口已抓到底（本页是最后一页）。
+    - ``next_cursor`` 是抓下一页要用的游标；``done=False`` 时必须给（否则无法续）。
+    """
+
+    items: tuple[InfoItem, ...] = ()
+    next_cursor: str | None = None
+    done: bool = False
+    usable: bool = True
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.usable and not self.reason:
+            raise InfoError("不可用的页必须给出原因")
+        if not self.done and self.usable and self.next_cursor is None:
+            raise InfoError("未完成的页必须给出 next_cursor（否则无法续爬）")
+        if isinstance(self.items, list):
+            object.__setattr__(self, "items", tuple(self.items))

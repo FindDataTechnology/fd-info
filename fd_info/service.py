@@ -10,8 +10,8 @@ import json
 from typing import Any, Callable
 
 from .body_store import BodyStore, BodyUnavailable
-from .models import InfoItem, SourceResult
-from .pipeline import BodyFetcher, IngestSummary, ingest_result
+from .models import InfoItem, PageResult, SourceResult
+from .pipeline import BodyFetcher, IngestSummary, ingest_paged, ingest_result
 from .storage import Store
 from .textcore_search import TextCoreUnavailable
 
@@ -32,6 +32,19 @@ class InfoService:
 
     def ingest(self, result: SourceResult, *, body_fetcher: BodyFetcher | None = None) -> IngestSummary:
         return ingest_result(result, self.store, self.body_store, body_fetcher=body_fetcher)
+
+    def ingest_paged(
+        self,
+        source: str,
+        window: str,
+        page_fetcher: Callable[[str | None], PageResult],
+        *,
+        body_fetcher: BodyFetcher | None = None,
+        max_pages: int | None = None,
+    ) -> IngestSummary:
+        """分页续爬摄取（大源用）。见 pipeline.ingest_paged。"""
+        return ingest_paged(source, window, page_fetcher, self.store, self.body_store,
+                            body_fetcher=body_fetcher, max_pages=max_pages)
 
     def list_since(self, **kwargs) -> dict[str, Any]:
         return self.store.list_since(**kwargs)
