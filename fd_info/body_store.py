@@ -57,12 +57,14 @@ class SpoolBodyStore:
     """按 ``<root>/<source>/structured/<YYYY-MM-DD>.jsonl`` 追加。
 
     ``doc_id`` 与条目身份一致，text-core 的 ``(domain, source, source_id)``
-    去重可直接复用。
+    去重可直接复用。**domain 取自条目**（item.domain），不是 store 固定值——
+    这样 govcn 政策进 gov 域、其余源进 news 域，同一条 spool 管线服务多条域。
     """
 
-    def __init__(self, root: str | Path, domain: str = "news") -> None:
+    def __init__(self, root: str | Path, domain: str | None = None) -> None:
         self.root = Path(root)
-        self.domain = domain
+        # 兼容旧构造：显式 domain 作为「条目未带 domain 时的兜底」；正常路径用 item.domain。
+        self._fallback_domain = domain or "news"
 
     def put(self, item: InfoItem, body: str) -> str:
         doc_id = item.doc_id or f"{item.source}:{item.source_id}"
@@ -70,7 +72,7 @@ class SpoolBodyStore:
         target = self.root / item.source / "structured" / f"{day}.jsonl"
         target.parent.mkdir(parents=True, exist_ok=True)
         record = {
-            "domain": self.domain,
+            "domain": item.domain or self._fallback_domain,
             "source": item.source,
             "source_id": item.source_id,
             "title": item.title,

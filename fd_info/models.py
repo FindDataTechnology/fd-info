@@ -76,6 +76,10 @@ class InfoItem:
     url: str | None = None
     lang: str = "zh"
     entities: tuple[str, ...] = ()
+    # 条目归属的 text-core 垂域（news/gov/...）。domain 是**源的一等属性**，一路
+    # 流到 spool 与入库——不许在 store/loader 里硬编码某一条线（此前 news 写死
+    # 导致 govcn 政策无处可去）。缺省 news 保持既有源行为不变。
+    domain: str = "news"
     doc_id: str | None = None
     body_status: str = "pending"
     withdrawn: bool = False

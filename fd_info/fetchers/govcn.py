@@ -177,6 +177,7 @@ class GovcnSource:
         return item_from_row(
             source=SOURCE, source_id=url or str(e.get("id")), source_type="policy",
             published=pub, title=title, url=url or None, summary=summary, body=body,
+            domain="gov",
         )
 
     def _http(self, url: str, headers: dict[str, str]) -> str:

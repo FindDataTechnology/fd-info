@@ -60,6 +60,7 @@ def item_from_row(
     summary: str | None = None,
     body: str | None = None,
     entities: tuple[str, ...] = (),
+    domain: str = "news",
 ) -> InfoItem:
     return InfoItem(
         source=source,
@@ -71,4 +72,5 @@ def item_from_row(
         body=body,
         url=url,
         entities=entities,
+        domain=domain,
     )
