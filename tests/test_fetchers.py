@@ -123,6 +123,8 @@ def test_ministry_filters_to_window():
     assert result.status == "ok"
     assert [i.title for i in result.items] == ["关于某政策的通知"]
     assert result.items[0].source_type == "ministry"
+    # 部委发布归 gov 垂域（不是默认 news）——此前缺 domain 参数，86 篇落错域无 facet
+    assert result.items[0].domain == "gov"
 
 
 def test_ministry_unavailable_without_package():

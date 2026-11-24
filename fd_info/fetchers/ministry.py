@@ -113,6 +113,9 @@ def _within(records: list[dict], window: FetchWindow, script: str) -> list[InfoI
                 published=date,
                 title=title,
                 url=url,
+                # 部委公开发布本质是公文，归 gov 垂域（不是 news）。此前缺此参数，
+                # 86 篇 cn-gov 落 news 域、无公文 facet（2026-11-24 实测）。
+                domain="gov",
             )
         )
     return out
