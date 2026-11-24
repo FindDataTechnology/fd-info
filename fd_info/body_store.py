@@ -75,6 +75,10 @@ class SpoolBodyStore:
             "domain": item.domain or self._fallback_domain,
             "source": item.source,
             "source_id": item.source_id,
+            # source_type 与 domain 同属条目的一等属性，随正文落盘——下游入库方
+            # 直接读它判定来源类型，不再按源名反查硬编码映射（那会把「哪个源属哪类」
+            # 的知识复制到每个入库方、并随新来源接入而失配）。
+            "source_type": item.source_type,
             "title": item.title,
             "content": body,
             "url": item.url,

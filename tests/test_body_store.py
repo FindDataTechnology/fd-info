@@ -27,6 +27,18 @@ def test_spool_writes_jsonl_and_locates_quote(tmp_path):
     assert store.locate(doc_id, 0, 6) == "政策全文：自"
 
 
+def test_spool_row_declares_source_type_and_domain(tmp_path):
+    """source_type/domain 随正文落盘，下游据此判来源类型/垂域，不按源名反查。"""
+    store = SpoolBodyStore(tmp_path)
+    store.put(item(source_type="policy", domain="gov"), "正文")
+    line = (tmp_path / "cn-gov" / "structured" / "2026-10-21.jsonl").read_text(
+        encoding="utf-8"
+    ).strip()
+    rec = json.loads(line)
+    assert rec["source_type"] == "policy"
+    assert rec["domain"] == "gov"
+
+
 def test_spool_missing_body_and_bounds(tmp_path):
     store = SpoolBodyStore(tmp_path)
     with pytest.raises(BodyUnavailable):
