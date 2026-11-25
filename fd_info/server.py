@@ -1,4 +1,4 @@
-"""MCP 入口：四个只读工具（spec: info-stream）。
+"""MCP 入口：六个只读工具（spec: info-stream）。
 
 用法：``python -m fd_info.server``（stdio）或 ``FD_INFO_DB=... fd-info serve``。
 """
