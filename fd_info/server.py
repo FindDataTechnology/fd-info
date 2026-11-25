@@ -25,10 +25,26 @@ def build_service() -> InfoService:
     return InfoService(store, body_store, search_hook=hook)
 
 
+#: 服务级路由知识（mcp-surface-truth「面向消费方的 server 必须声明服务级路由知识」）。
+#: 这条服务被 23 个已发布 pack 引用，工具描述各自自足但没人告诉模型「怎么在 6 个工具
+#: 之间选」。这里只讲选择，不重复逐个参数。
+INSTRUCTIONS = (
+    "柏讯信息流索引（fd-info）：各官方来源的条目增量与正文证据。工具分三组——"
+    "① 增量与检索：list_since（按游标取新条目，做盯梢/增量同步用）、search_info（按关键词搜）；"
+    "② 取单条详情：get_item（条目详情，含正文状态与原文链接）→ 需要逐字证据时用 "
+    "locate_evidence（按字符区间取原文片段）或 get_body（取全文）；"
+    "③ 运维观测：stream_health（各来源水位/延迟/失败计数，internal）。"
+    "选择要点：**做增量同步只调 list_since，不要用 search_info 轮询**——后者按相关性返回、"
+    "不保证时序，会漏条目；拿到 doc_id 后先 get_item 判正文状态，正文缺失时 "
+    "locate_evidence/get_body 会返回结构化错误而不是编造内容。"
+    "空结果如实为空；绝不编造条目或正文。"
+)
+
+
 def build_server():  # pragma: no cover - 传输层，测试不装载 fastmcp
     from fastmcp import FastMCP
 
-    mcp = FastMCP("fd-info", version=__version__)
+    mcp = FastMCP("fd-info", version=__version__, instructions=INSTRUCTIONS)
 
     from . import wellknown
 
